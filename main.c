@@ -3,6 +3,12 @@
 #include <stdlib.h>
 #include <math.h>
 
+typedef int16_t  i16;
+typedef int32_t  i32;
+typedef uint32_t u32;
+typedef float    f32;
+typedef unsigned char byte;
+
 #define DATA_OFFSET_OFFSET 0x000A
 #define WIDTH_OFFSET 0x0012
 #define HEIGHT_OFFSET 0x0016
@@ -15,13 +21,13 @@
 
 typedef struct
 {
-  unsigned char *pixels;
-  int32_t width;
-  int32_t height;
-  int32_t bytes_per_pixel;
+  byte *pixels;
+  i32 width;
+  i32 height;
+  i32 bytes_per_pixel;
 } bitmap;
 
-void bitmap_read(const char *source, unsigned char **pixels, int32_t *width, int32_t *height, int32_t *bytes_per_pixel)
+void bitmap_read(const char *source, byte **pixels, i32 *width, i32 *height, i32 *bytes_per_pixel)
 {
   FILE *image = fopen(source, "rb");
   if(image == NULL)
@@ -30,25 +36,25 @@ void bitmap_read(const char *source, unsigned char **pixels, int32_t *width, int
   }
 
   // get pixel information
-  int32_t data_offset;
+  i32 data_offset;
   fseek(image, DATA_OFFSET_OFFSET, SEEK_SET);
   fread(&data_offset, 4, 1, image);
   fseek(image, WIDTH_OFFSET, SEEK_SET);
   fread(width, 4, 1, image);
   fseek(image, HEIGHT_OFFSET, SEEK_SET);
   fread(height, 4, 1, image);
-  int16_t bits_per_pixel;
+  i16 bits_per_pixel;
   fseek(image, BITS_PER_PIXEL_OFFSET, SEEK_SET);
   fread(&bits_per_pixel, 2, 1, image);
-  *bytes_per_pixel = ((int32_t) bits_per_pixel) / 8;
+  *bytes_per_pixel = ((i32) bits_per_pixel) / 8;
 
   // get data for each pixel
-  int padded_row_size = (int)(4 * ceil((float)(*width) / 4.0f)) * (*bytes_per_pixel);
-  int unpadded_row_size = (*width) * (*bytes_per_pixel);
-  int total_size = unpadded_row_size * (*height);
-  *pixels = (unsigned char*) malloc(total_size);
-  unsigned char *current_row_pointer = *pixels + ((*height - 1) * unpadded_row_size);
-  for(int i = 0; i < *height; i++)
+  i32 padded_row_size = (i32)(4 * ceil((f32)(*width) / 4.0f)) * (*bytes_per_pixel);
+  i32 unpadded_row_size = (*width) * (*bytes_per_pixel);
+  i32 total_size = unpadded_row_size * (*height);
+  *pixels = (byte*) malloc(total_size);
+  byte *current_row_pointer = *pixels + ((*height - 1) * unpadded_row_size);
+  for(i32 i = 0; i < *height; i++)
   {
     fseek(image, data_offset + (i * padded_row_size), SEEK_SET);
     fread(current_row_pointer, 1, unpadded_row_size, image);
@@ -58,9 +64,9 @@ void bitmap_read(const char *source, unsigned char **pixels, int32_t *width, int
   fclose(image);
 }
 
-uint32_t string_length(const char *string)
+u32 string_length(const char *string)
 {
-  uint32_t index = 0;
+  u32 index = 0;
   while(string[index] != '\0')
   {
     index++;
@@ -68,12 +74,12 @@ uint32_t string_length(const char *string)
   return index;
 }
 
-int32_t map_value(int32_t value, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max)
+i32 map_value(i32 value, i32 in_min, i32 in_max, i32 out_min, i32 out_max)
 {
   return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-int main(int argc, char **argv)
+i32 main(i32 argc, char **argv)
 {
   bitmap data;
   bitmap_read("input.bmp", &data.pixels, &data.width, &data.height, &data.bytes_per_pixel);
@@ -81,19 +87,19 @@ int main(int argc, char **argv)
   FILE *out = fopen("output.txt", "w");
 
   const char *map = " .,:;ox%#@";
-  for(int32_t i = 0; i < data.height; i++)
+  for(i32 i = 0; i < data.height; i++)
   {
-    for(int32_t j = 0; j < data.width; j++)
+    for(i32 j = 0; j < data.width; j++)
     {
-      const uint32_t pixel_index = (i * data.width + j);
-      uint32_t pixel;
+      const u32 pixel_index = (i * data.width + j);
+      u32 pixel;
       pixel  = data.pixels[pixel_index + 0];
       pixel += data.pixels[pixel_index + 1];
       pixel += data.pixels[pixel_index + 2];
       pixel /= 3;
-      const uint32_t map_length = string_length(map);
+      const u32 map_length = string_length(map);
       // translate color value to ascii value on map
-      const int32_t char_index = map_value(pixel, 0, 255, 0, map_length);
+      const i32 char_index = map_value(pixel, 0, 255, 0, map_length);
       fputc(map[char_index], out);
     }
     fputc('\n', out);
