@@ -27,25 +27,48 @@ typedef struct
   i32 bytes_per_pixel;
 } bitmap;
 
-void bitmap_read(const char *source, byte **pixels, i32 *width, i32 *height, i32 *bytes_per_pixel)
+i32 bitmap_read(const char *source, byte **pixels, i32 *width, i32 *height, i32 *bytes_per_pixel)
 {
+  i32 success = 0;
   FILE *image = fopen(source, "rb");
   if(image == NULL)
   {
     printf("error opening bitmap file\n");
+    success = 1;
   }
 
   // get pixel information
   i32 data_offset;
-  fseek(image, DATA_OFFSET_OFFSET, SEEK_SET);
-  fread(&data_offset, 4, 1, image);
-  fseek(image, WIDTH_OFFSET, SEEK_SET);
-  fread(width, 4, 1, image);
-  fseek(image, HEIGHT_OFFSET, SEEK_SET);
-  fread(height, 4, 1, image);
+  i32 count;
+  (void)fseek(image, DATA_OFFSET_OFFSET, SEEK_SET);
+  count = fread(&data_offset, 4, 1, image);
+  if(count == 0)
+  {
+    printf("error reading data_offset\n");
+    success = 1;
+  }
+  (void)fseek(image, WIDTH_OFFSET, SEEK_SET);
+  count = fread(width, 4, 1, image);
+  if(count == 0)
+  {
+    printf("error reading width\n");
+    success = 1;
+  }
+  (void)fseek(image, HEIGHT_OFFSET, SEEK_SET);
+  count = fread(height, 4, 1, image);
+  if(count == 0)
+  {
+    printf("error reading height\n");
+    success = 1;
+  }
   i16 bits_per_pixel;
-  fseek(image, BITS_PER_PIXEL_OFFSET, SEEK_SET);
-  fread(&bits_per_pixel, 2, 1, image);
+  (void)fseek(image, BITS_PER_PIXEL_OFFSET, SEEK_SET);
+  count = fread(&bits_per_pixel, 2, 1, image);
+  if(count == 0)
+  {
+    printf("error reading bits per pixel\n");
+    success = 1;
+  }
   *bytes_per_pixel = ((i32) bits_per_pixel) / 8;
 
   // get data for each pixel
@@ -53,15 +76,26 @@ void bitmap_read(const char *source, byte **pixels, i32 *width, i32 *height, i32
   i32 unpadded_row_size = (*width) * (*bytes_per_pixel);
   i32 total_size = unpadded_row_size * (*height);
   *pixels = (byte*) malloc(total_size);
+  if(pixels == NULL)
+  {
+    printf("error allocating memory to pixels\n");
+    success = 1;
+  }
   byte *current_row_pointer = *pixels + ((*height - 1) * unpadded_row_size);
   for(i32 i = 0; i < *height; i++)
   {
-    fseek(image, data_offset + (i * padded_row_size), SEEK_SET);
-    fread(current_row_pointer, 1, unpadded_row_size, image);
+    (void)fseek(image, data_offset + (i * padded_row_size), SEEK_SET);
+    count = fread(current_row_pointer, 1, unpadded_row_size, image);
+    if(count == 0)
+    {
+      printf("error reading current_row_pointer\n");
+      success = 1;
+    }
     current_row_pointer -= unpadded_row_size;
   }
 
   fclose(image);
+  return success;
 }
 
 u32 string_length(const char *string)
@@ -82,9 +116,18 @@ i32 map_value(i32 value, i32 in_min, i32 in_max, i32 out_min, i32 out_max)
 i32 main(i32 argc, char **argv)
 {
   bitmap data;
-  bitmap_read("input.bmp", &data.pixels, &data.width, &data.height, &data.bytes_per_pixel);
+  if(bitmap_read("input.bmp", &data.pixels, &data.width, &data.height, &data.bytes_per_pixel) > 0)
+  {
+    printf("error reading bitmap\n");
+    return 1;
+  }
 
   FILE *out = fopen("output.txt", "w");
+  if(out == NULL)
+  {
+    printf("error opening output file\n");
+    return 1;
+  }
 
   const char *map = " .,:;ox%#@";
   for(i32 i = 0; i < data.height; i++)
@@ -100,9 +143,9 @@ i32 main(i32 argc, char **argv)
       const u32 map_length = string_length(map);
       // translate color value to ascii value on map
       const i32 char_index = map_value(pixel, 0, 255, 0, map_length);
-      fputc(map[char_index], out);
+      (void)fputc(map[char_index], out);
     }
-    fputc('\n', out);
+    (void)fputc('\n', out);
   }
 
   return 0;
