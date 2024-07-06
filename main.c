@@ -28,7 +28,7 @@ typedef struct
   u32 bytes_per_pixel;
 } bitmap;
 
-i32 static bitmap_read(const char *source, byte **pixels, u32 *width, u32 *height, u32 *bytes_per_pixel)
+i32 static bitmap_read(const char *source, bitmap *bmp)
 {
   i32 success = 0;
 
@@ -52,7 +52,7 @@ i32 static bitmap_read(const char *source, byte **pixels, u32 *width, u32 *heigh
   }
 
   (void)fseek(image, WIDTH_OFFSET, SEEK_SET);
-  count = fread(width, 4, 1, image);
+  count = fread(&bmp->width, 4, 1, image);
   if (count == 0)
   {
     printf("error reading width\n");
@@ -60,7 +60,7 @@ i32 static bitmap_read(const char *source, byte **pixels, u32 *width, u32 *heigh
   }
 
   (void)fseek(image, HEIGHT_OFFSET, SEEK_SET);
-  count = fread(height, 4, 1, image);
+  count = fread(&bmp->height, 4, 1, image);
   if (count == 0)
   {
     printf("error reading height\n");
@@ -75,21 +75,21 @@ i32 static bitmap_read(const char *source, byte **pixels, u32 *width, u32 *heigh
     printf("error reading bits per pixel\n");
     success = 1;
   }
-  *bytes_per_pixel = (u32) bits_per_pixel / 8;
+  bmp->bytes_per_pixel = (u32) bits_per_pixel / 8;
 
   // get data for each pixel
-  u32 padded_row_size = (u32)(4 * ceil((f32)(*width) / 4.0f)) * (*bytes_per_pixel);
-  u32 unpadded_row_size = (*width) * (*bytes_per_pixel);
-  u32 total_size = unpadded_row_size * (*height);
-  *pixels = (byte*) malloc(total_size);
-  if (pixels == NULL)
+  u32 padded_row_size = (u32)(4 * ceil((f32)(bmp->width) / 4.0f)) * (bmp->bytes_per_pixel);
+  u32 unpadded_row_size = (bmp->width) * (bmp->bytes_per_pixel);
+  u32 total_size = unpadded_row_size * (bmp->height);
+  bmp->pixels = (byte*) malloc(total_size);
+  if (bmp->pixels == NULL)
   {
     printf("error allocating memory to pixels\n");
     success = 1;
   }
 
-  byte *current_row_pointer = *pixels + ((*height - 1) * unpadded_row_size);
-  for (u32 i = 0; i < *height; i++)
+  byte *current_row_pointer = bmp->pixels + ((bmp->height - 1) * unpadded_row_size);
+  for (u32 i = 0; i < bmp->height; i++)
   {
     (void)fseek(image, data_offset + (i * padded_row_size), SEEK_SET);
     count = fread(current_row_pointer, 1, unpadded_row_size, image);
@@ -112,9 +112,10 @@ void static bitmap_destroy(bitmap *bitmap)
   bitmap->pixels = NULL;
 }
 
-u32 static string_length(const char *string)
+u32 static inline string_length(const char *string)
 {
   u32 index = 0;
+
   while (string[index] != '\0')
   {
     index++;
@@ -123,9 +124,9 @@ u32 static string_length(const char *string)
   return index;
 }
 
-i32 static map_value(i32 value, i32 in_min, i32 in_max, i32 out_min, i32 out_max)
+i32 static inline map_char(i32 pixel, u32 chars_length)
 {
-  return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  return pixel * (chars_length - 1) / 255;
 }
 
 i32 main(i32 argc, char **argv)
@@ -133,7 +134,7 @@ i32 main(i32 argc, char **argv)
   bitmap data;
   i32 output;
   
-  output = bitmap_read("input.bmp", &data.pixels, &data.width, &data.height, &data.bytes_per_pixel);
+  output = bitmap_read("input.bmp", &data);
   if (output > 0)
   {
     printf("error reading bitmap\n");
@@ -147,7 +148,7 @@ i32 main(i32 argc, char **argv)
     return 1;
   }
 
-  const char *map = " .,-~:;=!*#$@";
+  const char *map = " .;coPO?@#";
 
   for (i32 i = 0; i < data.height; i++)
   {
@@ -161,9 +162,9 @@ i32 main(i32 argc, char **argv)
       pixel += data.pixels[pixel_index + 2];
       pixel /= 3;
 
-      const u32 map_length = string_length(map);
+      const u32 chars_length = string_length(map);
       // translate color value to ascii value on map
-      const i32 char_index = map_value(pixel, 0, 255, 0, map_length);
+      const i32 char_index = map_char(pixel, chars_length);
       (void)fputc(map[char_index], out);
     }
     (void)fputc('\n', out);
