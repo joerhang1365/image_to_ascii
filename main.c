@@ -20,6 +20,9 @@ typedef unsigned char byte;
 #define MAX_NUMBER_OF_COLORS 0
 #define ALL_COLORS_REQUIRED 0
 
+#define PI 3.1415926
+#define EDGE_THRESHOLD 350
+
 typedef struct
 {
   byte *pixels;
@@ -27,6 +30,12 @@ typedef struct
   u32 height;
   u32 bytes_per_pixel;
 } bitmap;
+
+typedef struct
+{
+  f32 *x;
+  f32 *y;
+} gradient;
 
 i32 static bitmap_read(const char *source, bitmap *bmp)
 {
@@ -112,26 +121,101 @@ void static bitmap_destroy(bitmap *bitmap)
   bitmap->pixels = NULL;
 }
 
+void static gradient_destroy(gradient *g)
+{
+  free(g->x);
+  free(g->y);
+  g->x = NULL;
+  g->y = NULL;
+}
+
 u32 static inline string_length(const char *string)
 {
   u32 index = 0;
 
-  while (string[index] != '\0')
-  {
-    index++;
-  }
+  while (string[index] != '\0') index++;
 
   return index;
 }
 
-i32 static inline map_char(i32 pixel, u32 chars_length)
+i32 static inline map_char_index(i32 pixel, u32 chars_length)
 {
   return pixel * (chars_length - 1) / 255;
+}
+
+i32 static inline boundary_check(const i32 x, const i32 y, const u32 width, const u32 height)
+{
+  if (x > width) return 0;
+  else if (x < 0) return 0;
+  else if (y > height) return 0;
+  else if (y < 0) return 0;
+  else if (y * width + x > width * height) return 0;
+  else return 1;
+}
+
+void static sobel(gradient *g, const byte *grayscale, const bitmap data)
+{
+  /* fancy differential equation shit i looked up */
+  g->x = malloc(sizeof(f32) * data.width * data.height);
+  g->y = malloc(sizeof(f32) * data.width * data.height);
+
+  i32 index;
+  i32 square[9];
+
+  for (i32 i = 0; i < data.height; i++)
+  {
+    for (i32 j = 0; j < data.width; j++)
+    {
+      index = 0;
+
+      // record values in 3x3 square
+      for (i32 m = -1; m <= 1; m++)
+      {
+        for (i32 n = -1; n <= 1; n++)
+        {
+          if (!boundary_check(j + n, i + m, data.width, data.height)) continue;
+          square[index++] = grayscale[(i + m) * data.width + (j + n)];
+        }
+      }
+      g->x[i * data.width + j] = abs(square[2] + 2*square[5] + square[8] - square[0] - 2*square[3] - square[6]);
+      g->y[i * data.width + j] = abs(square[6] + 2*square[7] + square[8] - square[0] - 2*square[1] - square[2]);
+    }
+  }
+}
+
+char get_edge_char(f32 gx, f32 gy)
+{
+    f32 magnitude = sqrt(gx * gx + gy * gy);
+    if (magnitude < EDGE_THRESHOLD) return ' ';
+
+    f32 angle = atan2(gy, gx) * 180.0f / PI;
+
+    if (angle < 0) angle += 360;
+
+    if ((angle >= 0 && angle < 22.5) || (angle >= 157.5 && angle < 202.5) || (angle >= 337.5 && angle < 360))
+    {
+        return '|';  // vertical edge
+    }
+    else if ((angle >= 22.5 && angle < 67.5) || (angle >= 202.5 && angle < 247.5))
+    {
+        return '\\'; // descending diagonal edge
+    }
+    else if ((angle >= 67.5 && angle < 112.5) || (angle >= 247.5 && angle < 292.5))
+    {
+        return '_';  // horizontal edge
+    }
+    else if ((angle >= 112.5 && angle < 157.5) || (angle >= 292.5 && angle < 337.5))
+    {
+        return '/';  // ascending diagonal edge
+    }
+
+    return ' ';
 }
 
 i32 main(i32 argc, char **argv)
 {
   bitmap data;
+  gradient g;
   i32 output;
   
   output = bitmap_read("input.bmp", &data);
@@ -141,6 +225,62 @@ i32 main(i32 argc, char **argv)
     return 1;
   }
 
+  /* get grayscale */
+  byte grayscale[data.width * data.height];
+
+  for (u32 i = 0; i < data.width * data.height; i++)
+  {
+    grayscale[i] = 0;
+  }
+
+  for (i32 i = 0; i < data.height; i++)
+  {
+    for (i32 j = 0; j < data.width; j++)
+    {
+      const u32 index = i * data.width + j;
+      
+      // 32 bits cuz 8 x 3 close to 32
+      u32 pixel = 0;
+      pixel  = data.pixels[index + 0];
+      pixel += data.pixels[index + 1];
+      pixel += data.pixels[index + 2];
+      pixel /= 3;
+
+      grayscale[index] = pixel;
+    }
+  }
+
+  char buffer[data.width * data.height];
+  const char *map = " .;coPO?@#";
+
+  /* first pass of ascii chars */
+  for (i32 i = 0; i < data.height; i++)
+  {
+    for (i32 j = 0; j < data.width; j++)
+    {
+      const u32 index = i * data.height + j;
+      const u32 length = string_length(map);
+      const u32 map_index = map_char_index(grayscale[index], length);
+      buffer[index] = map[map_index];
+    }
+  }
+
+  /* get gradient */
+  sobel(&g, grayscale, data);
+
+  /* second pass with edges */
+  for (i32 i = 0; i < data.height; i++)
+  {
+    for (i32 j = 0; j < data.width; j++)
+    {
+      const i32 index = i * data.width + j;
+      const char ascii = get_edge_char(g.x[index], g.y[index]);
+      if (ascii == ' ') continue;
+      buffer[index] = ascii;
+    }
+  }
+
+  /* write buffer to file */
   FILE *out = fopen("output.txt", "w");
   if (out == NULL)
   {
@@ -148,28 +288,20 @@ i32 main(i32 argc, char **argv)
     return 1;
   }
 
-  const char *map = " .;coPO?@#";
-
   for (i32 i = 0; i < data.height; i++)
   {
     for (i32 j = 0; j < data.width; j++)
     {
-      const u32 pixel_index = (i * data.width + j);
-      
-      u32 pixel;
-      pixel  = data.pixels[pixel_index + 0];
-      pixel += data.pixels[pixel_index + 1];
-      pixel += data.pixels[pixel_index + 2];
-      pixel /= 3;
+      const i32 index = i * data.width + j;
 
-      const u32 chars_length = string_length(map);
-      // translate color value to ascii value on map
-      const i32 char_index = map_char(pixel, chars_length);
-      (void)fputc(map[char_index], out);
+      (void)fputc(buffer[index], out);
     }
     (void)fputc('\n', out);
   }
 
+  fclose(out);
+
+  gradient_destroy(&g);
   bitmap_destroy(&data);
 
   return 0;
