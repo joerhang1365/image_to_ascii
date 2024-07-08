@@ -21,7 +21,7 @@ typedef unsigned char byte;
 #define ALL_COLORS_REQUIRED 0
 
 #define PI 3.1415926
-#define EDGE_THRESHOLD 350
+#define EDGE_THRESHOLD 400.0f
 
 typedef struct
 {
@@ -138,19 +138,14 @@ u32 static inline string_length(const char *string)
   return index;
 }
 
-i32 static inline map_char_index(i32 pixel, u32 chars_length)
+i32 static inline map_char_index(const i32 pixel, const u32 chars_length)
 {
   return pixel * (chars_length - 1) / 255;
 }
 
 i32 static inline boundary_check(const i32 x, const i32 y, const u32 width, const u32 height)
 {
-  if (x > width) return 0;
-  else if (x < 0) return 0;
-  else if (y > height) return 0;
-  else if (y < 0) return 0;
-  else if (y * width + x > width * height) return 0;
-  else return 1;
+  return x >= 0 && x < width && y >= 0 && y < height;
 }
 
 void static sobel(gradient *g, const byte *grayscale, const bitmap data)
@@ -173,8 +168,13 @@ void static sobel(gradient *g, const byte *grayscale, const bitmap data)
       {
         for (i32 n = -1; n <= 1; n++)
         {
-          if (!boundary_check(j + n, i + m, data.width, data.height)) continue;
-          square[index++] = grayscale[(i + m) * data.width + (j + n)];
+          if (boundary_check(j + n, i + m, data.width, data.height))
+          {
+            square[index] = grayscale[(i + m) * data.width + (j + n)];
+          }
+          else square[index] = 0;
+
+          index++;
         }
       }
       g->x[i * data.width + j] = abs(square[2] + 2*square[5] + square[8] - square[0] - 2*square[3] - square[6]);
@@ -190,7 +190,8 @@ char get_edge_char(f32 gx, f32 gy)
 
     f32 angle = atan2(gy, gx) * 180.0f / PI;
 
-    if (angle < 0) angle += 360;
+    // make sure angle is between [0, 360)
+    angle = fmod(angle + 360.0f, 360.0f); 
 
     if ((angle >= 0 && angle < 22.5) || (angle >= 157.5 && angle < 202.5) || (angle >= 337.5 && angle < 360))
     {
@@ -215,11 +216,10 @@ char get_edge_char(f32 gx, f32 gy)
 i32 main(i32 argc, char **argv)
 {
   bitmap data;
-  gradient g;
-  i32 output;
+  i32 error;
   
-  output = bitmap_read("input.bmp", &data);
-  if (output > 0)
+  error = bitmap_read("input.bmp", &data);
+  if (error > 0)
   {
     printf("error reading bitmap\n");
     return 1;
@@ -233,39 +233,31 @@ i32 main(i32 argc, char **argv)
     grayscale[i] = 0;
   }
 
-  for (i32 i = 0; i < data.height; i++)
+  for (i32 i = 0; i < data.width * data.height; i++)
   {
-    for (i32 j = 0; j < data.width; j++)
-    {
-      const u32 index = i * data.width + j;
-      
-      // 32 bits cuz 8 x 3 close to 32
-      u32 pixel = 0;
-      pixel  = data.pixels[index + 0];
-      pixel += data.pixels[index + 1];
-      pixel += data.pixels[index + 2];
-      pixel /= 3;
+    // 32 bits cuz 8 x 3 close to 32
+    u32 pixel = 0;
+    pixel  = data.pixels[i + 0];
+    pixel += data.pixels[i + 1];
+    pixel += data.pixels[i + 2];
+    pixel /= 3;
 
-      grayscale[index] = pixel;
-    }
+    grayscale[i] = pixel;
   }
 
   char buffer[data.width * data.height];
-  const char *map = " .;coPO?@#";
+  const char *map = " .:-=+*#%@";
 
   /* first pass of ascii chars */
-  for (i32 i = 0; i < data.height; i++)
+  for (i32 i = 0; i < data.width * data.height; i++)
   {
-    for (i32 j = 0; j < data.width; j++)
-    {
-      const u32 index = i * data.height + j;
-      const u32 length = string_length(map);
-      const u32 map_index = map_char_index(grayscale[index], length);
-      buffer[index] = map[map_index];
-    }
+    const u32 length = string_length(map);
+    const u32 map_index = map_char_index(grayscale[i], length);
+    buffer[i] = map[map_index];
   }
 
   /* get gradient */
+  gradient g;
   sobel(&g, grayscale, data);
 
   /* second pass with edges */
@@ -275,7 +267,8 @@ i32 main(i32 argc, char **argv)
     {
       const i32 index = i * data.width + j;
       const char ascii = get_edge_char(g.x[index], g.y[index]);
-      if (ascii == ' ') continue;
+      // check if boarder or blank
+      if (j == 0 || j == data.width - 1 || i == 0 || i == data.height - 1 || ascii == ' ') continue;
       buffer[index] = ascii;
     }
   }
@@ -293,7 +286,6 @@ i32 main(i32 argc, char **argv)
     for (i32 j = 0; j < data.width; j++)
     {
       const i32 index = i * data.width + j;
-
       (void)fputc(buffer[index], out);
     }
     (void)fputc('\n', out);
